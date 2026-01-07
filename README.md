@@ -25,19 +25,38 @@ A web-based job management application for Unbloc drainage company. Manage custo
 
 ### Installation
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-2. Start the development server:
-   ```bash
-   npm run dev
-   ```
+### Running Locally (Recommended)
 
-3. Open your browser to `http://localhost:5173`
+Build and run the complete application on a single server:
 
-The API server runs on port 3001 and the frontend dev server on port 5173 with automatic proxying.
+```bash
+npm run local
+```
+
+Then open `http://localhost:3000` in your browser.
+
+### Development Mode
+
+For development with hot-reloading:
+
+```bash
+npm run dev
+```
+
+This runs the frontend on port 5173 with the API on port 3000.
+
+### Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm run local` | Build and run production server |
+| `npm start` | Run production server (requires build first) |
+| `npm run dev` | Run development servers with hot-reload |
+| `npm run build` | Build frontend for production |
 
 ## Project Structure
 

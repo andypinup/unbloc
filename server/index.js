@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -382,7 +382,16 @@ app.get('/api/dashboard', (req, res) => {
   res.json({ stats, recent_jobs, upcoming_jobs });
 });
 
+// ============ SERVE FRONTEND (Production) ============
+const distPath = path.join(__dirname, '..', 'dist');
+app.use(express.static(distPath));
+
+// Handle client-side routing - serve index.html for all non-API routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
 // Start server
 app.listen(PORT, () => {
-  console.log(`Unbloc API server running on port ${PORT}`);
+  console.log(`Unbloc running at http://localhost:${PORT}`);
 });
