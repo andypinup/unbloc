@@ -7,12 +7,16 @@ import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
 import Engineers from './pages/Engineers'
 import Diary from './pages/Diary'
+import Tickets from './pages/Tickets'
+import TicketDetail from './pages/TicketDetail'
 
 function App() {
   return (
     <Layout>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/tickets" element={<Tickets />} />
+        <Route path="/tickets/:id" element={<TicketDetail />} />
         <Route path="/customers" element={<Customers />} />
         <Route path="/customers/:id" element={<CustomerDetail />} />
         <Route path="/jobs" element={<Jobs />} />

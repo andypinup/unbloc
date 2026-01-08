@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Users, Briefcase, UserCog, Clock, CheckCircle, AlertCircle, Calendar } from 'lucide-react'
+import { Users, Briefcase, UserCog, Clock, CheckCircle, AlertCircle, Calendar, Ticket, AlertTriangle } from 'lucide-react'
 
 function Dashboard() {
   const [data, setData] = useState(null)
@@ -26,13 +26,21 @@ function Dashboard() {
   const stats = data?.stats || {}
   const recentJobs = data?.recent_jobs || []
   const upcomingJobs = data?.upcoming_jobs || []
+  const recentTickets = data?.recent_tickets || []
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h1>
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
+        <StatCard
+          icon={Ticket}
+          label="Open Tickets"
+          value={stats.open_tickets}
+          color="bg-red-500"
+          link="/tickets?status=open"
+        />
         <StatCard
           icon={Users}
           label="Customers"
@@ -63,6 +71,46 @@ function Dashboard() {
         />
       </div>
 
+      {/* Ticket Status Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <Ticket className="w-8 h-8 text-red-600" />
+            <div>
+              <p className="text-2xl font-bold text-red-700">{stats.open_tickets}</p>
+              <p className="text-sm text-red-600">Open Tickets</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-8 h-8 text-blue-600" />
+            <div>
+              <p className="text-2xl font-bold text-blue-700">{stats.in_progress_tickets}</p>
+              <p className="text-sm text-blue-600">In Progress</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-8 h-8 text-orange-600" />
+            <div>
+              <p className="text-2xl font-bold text-orange-700">{stats.high_priority_tickets}</p>
+              <p className="text-sm text-orange-600">High Priority</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="w-8 h-8 text-green-600" />
+            <div>
+              <p className="text-2xl font-bold text-green-700">{stats.resolved_tickets}</p>
+              <p className="text-sm text-green-600">Resolved</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Job Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -79,7 +127,7 @@ function Dashboard() {
             <AlertCircle className="w-8 h-8 text-blue-600" />
             <div>
               <p className="text-2xl font-bold text-blue-700">{stats.in_progress_jobs}</p>
-              <p className="text-sm text-blue-600">In Progress</p>
+              <p className="text-sm text-blue-600">Jobs In Progress</p>
             </div>
           </div>
         </div>
@@ -88,14 +136,42 @@ function Dashboard() {
             <CheckCircle className="w-8 h-8 text-green-600" />
             <div>
               <p className="text-2xl font-bold text-green-700">{stats.completed_jobs}</p>
-              <p className="text-sm text-green-600">Completed</p>
+              <p className="text-sm text-green-600">Jobs Completed</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Three Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Recent Tickets */}
+        <div className="bg-white rounded-lg shadow">
+          <div className="p-4 border-b flex justify-between items-center">
+            <h2 className="text-lg font-semibold text-gray-800">Recent Tickets</h2>
+            <Link to="/tickets" className="text-sm text-blue-600 hover:underline">View All</Link>
+          </div>
+          <div className="p-4">
+            {recentTickets.length === 0 ? (
+              <p className="text-gray-500 text-sm">No tickets yet</p>
+            ) : (
+              <ul className="space-y-3">
+                {recentTickets.map(ticket => (
+                  <li key={ticket.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                    <TicketStatusBadge status={ticket.status} />
+                    <div className="flex-1">
+                      <Link to={`/tickets/${ticket.id}`} className="font-medium text-gray-800 hover:text-blue-600">
+                        {ticket.title}
+                      </Link>
+                      <p className="text-sm text-gray-600">{ticket.customer_name}</p>
+                    </div>
+                    <PriorityBadge priority={ticket.priority} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+
         {/* Upcoming Jobs */}
         <div className="bg-white rounded-lg shadow">
           <div className="p-4 border-b flex justify-between items-center">
@@ -200,6 +276,44 @@ function StatusBadge({ status }) {
   return (
     <span className={`text-xs px-2 py-1 rounded ${styles[status] || styles.pending}`}>
       {labels[status] || status}
+    </span>
+  )
+}
+
+function TicketStatusBadge({ status }) {
+  const styles = {
+    open: 'bg-red-100 text-red-700',
+    in_progress: 'bg-blue-100 text-blue-700',
+    resolved: 'bg-yellow-100 text-yellow-700',
+    closed: 'bg-green-100 text-green-700'
+  }
+
+  const labels = {
+    open: 'Open',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    closed: 'Closed'
+  }
+
+  return (
+    <span className={`text-xs px-2 py-1 rounded ${styles[status] || styles.open}`}>
+      {labels[status] || status}
+    </span>
+  )
+}
+
+function PriorityBadge({ priority }) {
+  if (!priority || priority === 'normal') return null
+
+  const styles = {
+    low: 'bg-gray-100 text-gray-600',
+    high: 'bg-orange-100 text-orange-700',
+    urgent: 'bg-red-100 text-red-700'
+  }
+
+  return (
+    <span className={`text-xs px-2 py-1 rounded ${styles[priority]}`}>
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
     </span>
   )
 }

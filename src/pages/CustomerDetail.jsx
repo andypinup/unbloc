@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Phone, Mail, MapPin, Plus, Edit2, Trash2 } from 'lucide-react'
+import { ArrowLeft, Phone, Mail, MapPin, Plus, Edit2, Trash2, Ticket } from 'lucide-react'
 import Modal from '../components/Modal'
 
 function CustomerDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [customer, setCustomer] = useState(null)
+  const [tickets, setTickets] = useState([])
   const [loading, setLoading] = useState(true)
   const [showAddressModal, setShowAddressModal] = useState(false)
   const [editingAddress, setEditingAddress] = useState(null)
 
   useEffect(() => {
     fetchCustomer()
+    fetchTickets()
   }, [id])
 
   const fetchCustomer = () => {
@@ -22,6 +24,12 @@ function CustomerDetail() {
         setCustomer(data)
         setLoading(false)
       })
+  }
+
+  const fetchTickets = () => {
+    fetch(`/api/tickets?customer_id=${id}`)
+      .then(res => res.json())
+      .then(setTickets)
   }
 
   const handleSaveAddress = (formData) => {
@@ -151,8 +159,66 @@ function CustomerDetail() {
           </div>
         </div>
 
-        {/* Jobs */}
-        <div className="lg:col-span-2">
+        {/* Right Column - Tickets and Jobs */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Tickets */}
+          <div className="bg-white rounded-lg shadow">
+            <div className="p-4 border-b flex justify-between items-center">
+              <div className="flex items-center gap-2">
+                <Ticket className="w-5 h-5 text-gray-400" />
+                <h2 className="text-lg font-semibold text-gray-800">Support Tickets</h2>
+              </div>
+              <Link
+                to={`/tickets?customer=${id}`}
+                className="flex items-center gap-1 text-sm bg-unbloc-600 text-white px-3 py-1.5 rounded-lg hover:bg-unbloc-700"
+              >
+                <Plus className="w-4 h-4" />
+                New Ticket
+              </Link>
+            </div>
+            <div className="p-4">
+              {tickets.length === 0 ? (
+                <p className="text-gray-500 text-sm text-center py-4">No tickets for this customer</p>
+              ) : (
+                <div className="space-y-3">
+                  {tickets.slice(0, 5).map(ticket => (
+                    <Link
+                      key={ticket.id}
+                      to={`/tickets/${ticket.id}`}
+                      className="block p-4 bg-gray-50 rounded-lg hover:bg-gray-100"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400 text-sm">#{ticket.id}</span>
+                            <h3 className="font-medium text-gray-800">{ticket.title}</h3>
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-sm text-gray-600">
+                            <span>{ticket.category || 'Support'}</span>
+                            {ticket.engineer_name && <span>- {ticket.engineer_name}</span>}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <TicketStatusBadge status={ticket.status} />
+                          <TicketPriorityBadge priority={ticket.priority} />
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                  {tickets.length > 5 && (
+                    <Link
+                      to={`/tickets?customer_id=${id}`}
+                      className="block text-center text-sm text-unbloc-600 hover:underline py-2"
+                    >
+                      View all {tickets.length} tickets
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Jobs */}
           <div className="bg-white rounded-lg shadow">
             <div className="p-4 border-b flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-800">Jobs</h2>
@@ -314,6 +380,44 @@ function StatusBadge({ status }) {
   return (
     <span className={`text-xs px-2 py-1 rounded ${styles[status] || styles.pending}`}>
       {labels[status] || status}
+    </span>
+  )
+}
+
+function TicketStatusBadge({ status }) {
+  const styles = {
+    open: 'bg-red-100 text-red-700',
+    in_progress: 'bg-blue-100 text-blue-700',
+    resolved: 'bg-yellow-100 text-yellow-700',
+    closed: 'bg-green-100 text-green-700'
+  }
+
+  const labels = {
+    open: 'Open',
+    in_progress: 'In Progress',
+    resolved: 'Resolved',
+    closed: 'Closed'
+  }
+
+  return (
+    <span className={`text-xs px-2 py-1 rounded ${styles[status] || styles.open}`}>
+      {labels[status] || status}
+    </span>
+  )
+}
+
+function TicketPriorityBadge({ priority }) {
+  if (!priority || priority === 'normal') return null
+
+  const styles = {
+    low: 'bg-gray-100 text-gray-600',
+    high: 'bg-orange-100 text-orange-700',
+    urgent: 'bg-red-100 text-red-700'
+  }
+
+  return (
+    <span className={`text-xs px-2 py-1 rounded ${styles[priority]}`}>
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
     </span>
   )
 }

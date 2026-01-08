@@ -77,6 +77,34 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_id INTEGER NOT NULL,
+    job_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT DEFAULT 'open',
+    priority TEXT DEFAULT 'normal',
+    category TEXT DEFAULT 'support',
+    assigned_engineer_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    resolved_at DATETIME,
+    FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE SET NULL,
+    FOREIGN KEY (assigned_engineer_id) REFERENCES engineers(id) ON DELETE SET NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS ticket_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id INTEGER NOT NULL,
+    sender_type TEXT DEFAULT 'staff',
+    sender_name TEXT,
+    message TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (ticket_id) REFERENCES tickets(id) ON DELETE CASCADE
+  );
 `);
 
 // ============ ENGINEERS API ============
@@ -293,6 +321,121 @@ app.delete('/api/notes/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// ============ TICKETS API ============
+app.get('/api/tickets', (req, res) => {
+  const { status, priority, category, engineer_id, customer_id } = req.query;
+
+  let query = `
+    SELECT t.*,
+      c.name as customer_name, c.email as customer_email, c.phone as customer_phone,
+      e.name as engineer_name, e.color as engineer_color,
+      j.title as job_title,
+      (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count
+    FROM tickets t
+    LEFT JOIN customers c ON t.customer_id = c.id
+    LEFT JOIN engineers e ON t.assigned_engineer_id = e.id
+    LEFT JOIN jobs j ON t.job_id = j.id
+    WHERE 1=1
+  `;
+
+  const params = [];
+
+  if (status) {
+    query += ' AND t.status = ?';
+    params.push(status);
+  }
+
+  if (priority) {
+    query += ' AND t.priority = ?';
+    params.push(priority);
+  }
+
+  if (category) {
+    query += ' AND t.category = ?';
+    params.push(category);
+  }
+
+  if (engineer_id) {
+    query += ' AND t.assigned_engineer_id = ?';
+    params.push(engineer_id);
+  }
+
+  if (customer_id) {
+    query += ' AND t.customer_id = ?';
+    params.push(customer_id);
+  }
+
+  query += ' ORDER BY t.created_at DESC';
+
+  const tickets = db.prepare(query).all(...params);
+  res.json(tickets);
+});
+
+app.get('/api/tickets/:id', (req, res) => {
+  const ticket = db.prepare(`
+    SELECT t.*,
+      c.name as customer_name, c.email as customer_email, c.phone as customer_phone,
+      e.name as engineer_name, e.color as engineer_color,
+      j.title as job_title, j.id as job_id
+    FROM tickets t
+    LEFT JOIN customers c ON t.customer_id = c.id
+    LEFT JOIN engineers e ON t.assigned_engineer_id = e.id
+    LEFT JOIN jobs j ON t.job_id = j.id
+    WHERE t.id = ?
+  `).get(req.params.id);
+
+  if (!ticket) return res.status(404).json({ error: 'Ticket not found' });
+
+  const messages = db.prepare('SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(req.params.id);
+
+  res.json({ ...ticket, messages });
+});
+
+app.post('/api/tickets', (req, res) => {
+  const { customer_id, job_id, title, description, status, priority, category, assigned_engineer_id } = req.body;
+  const result = db.prepare('INSERT INTO tickets (customer_id, job_id, title, description, status, priority, category, assigned_engineer_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(customer_id, job_id || null, title, description, status || 'open', priority || 'normal', category || 'support', assigned_engineer_id || null);
+  res.json({ id: result.lastInsertRowid, ...req.body });
+});
+
+app.put('/api/tickets/:id', (req, res) => {
+  const { customer_id, job_id, title, description, status, priority, category, assigned_engineer_id } = req.body;
+
+  let resolved_at = null;
+  if (status === 'resolved' || status === 'closed') {
+    const existing = db.prepare('SELECT resolved_at FROM tickets WHERE id = ?').get(req.params.id);
+    resolved_at = existing?.resolved_at || new Date().toISOString();
+  }
+
+  db.prepare('UPDATE tickets SET customer_id = ?, job_id = ?, title = ?, description = ?, status = ?, priority = ?, category = ?, assigned_engineer_id = ?, resolved_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(customer_id, job_id || null, title, description, status, priority, category, assigned_engineer_id || null, resolved_at, req.params.id);
+  res.json({ id: parseInt(req.params.id), ...req.body, resolved_at });
+});
+
+app.delete('/api/tickets/:id', (req, res) => {
+  db.prepare('DELETE FROM tickets WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// ============ TICKET MESSAGES API ============
+app.get('/api/tickets/:ticketId/messages', (req, res) => {
+  const messages = db.prepare('SELECT * FROM ticket_messages WHERE ticket_id = ? ORDER BY created_at ASC').all(req.params.ticketId);
+  res.json(messages);
+});
+
+app.post('/api/tickets/:ticketId/messages', (req, res) => {
+  const { sender_type, sender_name, message } = req.body;
+  const result = db.prepare('INSERT INTO ticket_messages (ticket_id, sender_type, sender_name, message) VALUES (?, ?, ?, ?)').run(req.params.ticketId, sender_type || 'staff', sender_name, message);
+
+  // Update ticket updated_at timestamp
+  db.prepare('UPDATE tickets SET updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(req.params.ticketId);
+
+  res.json({ id: result.lastInsertRowid, ticket_id: parseInt(req.params.ticketId), sender_type, sender_name, message, created_at: new Date().toISOString() });
+});
+
+app.delete('/api/ticket-messages/:id', (req, res) => {
+  db.prepare('DELETE FROM ticket_messages WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ============ CALENDAR API ============
 app.get('/api/calendar', (req, res) => {
   const { start, end } = req.query;
@@ -356,7 +499,13 @@ app.get('/api/dashboard', (req, res) => {
     pending_jobs: db.prepare('SELECT COUNT(*) as count FROM jobs WHERE status = "pending"').get().count,
     in_progress_jobs: db.prepare('SELECT COUNT(*) as count FROM jobs WHERE status = "in_progress"').get().count,
     completed_jobs: db.prepare('SELECT COUNT(*) as count FROM jobs WHERE status = "completed"').get().count,
-    today_jobs: db.prepare('SELECT COUNT(*) as count FROM jobs WHERE scheduled_date = ?').get(today).count
+    today_jobs: db.prepare('SELECT COUNT(*) as count FROM jobs WHERE scheduled_date = ?').get(today).count,
+    // Ticket stats
+    total_tickets: db.prepare('SELECT COUNT(*) as count FROM tickets').get().count,
+    open_tickets: db.prepare('SELECT COUNT(*) as count FROM tickets WHERE status = "open"').get().count,
+    in_progress_tickets: db.prepare('SELECT COUNT(*) as count FROM tickets WHERE status = "in_progress"').get().count,
+    resolved_tickets: db.prepare('SELECT COUNT(*) as count FROM tickets WHERE status = "resolved"').get().count,
+    high_priority_tickets: db.prepare('SELECT COUNT(*) as count FROM tickets WHERE priority IN ("high", "urgent") AND status NOT IN ("resolved", "closed")').get().count
   };
 
   const recent_jobs = db.prepare(`
@@ -379,7 +528,16 @@ app.get('/api/dashboard', (req, res) => {
     LIMIT 10
   `).all(today);
 
-  res.json({ stats, recent_jobs, upcoming_jobs });
+  const recent_tickets = db.prepare(`
+    SELECT t.*, c.name as customer_name, e.name as engineer_name
+    FROM tickets t
+    LEFT JOIN customers c ON t.customer_id = c.id
+    LEFT JOIN engineers e ON t.assigned_engineer_id = e.id
+    ORDER BY t.created_at DESC
+    LIMIT 5
+  `).all();
+
+  res.json({ stats, recent_jobs, upcoming_jobs, recent_tickets });
 });
 
 // ============ SERVE FRONTEND (Production) ============
@@ -393,5 +551,5 @@ app.get('*', (req, res) => {
 
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Unbloc running at http://localhost:${PORT}`);
+  console.log(`IT Mighty running at http://localhost:${PORT}`);
 });

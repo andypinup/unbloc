@@ -1,8 +1,9 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Briefcase, UserCog, Calendar, Wrench } from 'lucide-react'
+import { Home, Users, Briefcase, UserCog, Calendar, Ticket, Shield } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: Home, label: 'Dashboard' },
+  { to: '/tickets', icon: Ticket, label: 'Tickets' },
   { to: '/diary', icon: Calendar, label: 'Diary' },
   { to: '/jobs', icon: Briefcase, label: 'Jobs' },
   { to: '/customers', icon: Users, label: 'Customers' },
@@ -17,11 +18,11 @@ function Layout({ children }) {
         <div className="p-4 border-b border-unbloc-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
-              <Wrench className="w-6 h-6 text-unbloc-800" />
+              <Shield className="w-6 h-6 text-unbloc-800" />
             </div>
             <div>
-              <h1 className="text-xl font-bold">Unbloc</h1>
-              <p className="text-xs text-unbloc-300">Job Management</p>
+              <h1 className="text-xl font-bold">IT Mighty</h1>
+              <p className="text-xs text-unbloc-300">IT Support</p>
             </div>
           </div>
         </div>
@@ -49,7 +50,7 @@ function Layout({ children }) {
         </nav>
 
         <div className="p-4 border-t border-unbloc-700 text-xs text-unbloc-400">
-          <p>Unbloc Drainage Services</p>
+          <p>IT Mighty Support</p>
           <p>v1.0.0</p>
         </div>
       </aside>
