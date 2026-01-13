@@ -77,7 +77,90 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS snmp_devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    ip_address TEXT NOT NULL,
+    device_type TEXT NOT NULL,
+    location TEXT,
+    description TEXT,
+    snmp_community TEXT DEFAULT 'public',
+    snmp_version TEXT DEFAULT 'v2c',
+    poll_interval INTEGER DEFAULT 60,
+    enabled INTEGER DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS snmp_status (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    response_time INTEGER,
+    uptime TEXT,
+    cpu_usage INTEGER,
+    memory_usage INTEGER,
+    error_message TEXT,
+    checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES snmp_devices(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS snmp_alerts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id INTEGER NOT NULL,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    message TEXT NOT NULL,
+    acknowledged INTEGER DEFAULT 0,
+    acknowledged_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (device_id) REFERENCES snmp_devices(id) ON DELETE CASCADE
+  );
 `);
+
+// Seed SNMP devices if table is empty
+const deviceCount = db.prepare('SELECT COUNT(*) as count FROM snmp_devices').get().count;
+if (deviceCount === 0) {
+  const seedDevices = [
+    { name: 'Main Router', ip: '192.168.1.1', type: 'router', location: 'Server Room', desc: 'Primary network router' },
+    { name: 'Core Switch', ip: '192.168.1.2', type: 'switch', location: 'Server Room', desc: '48-port managed switch' },
+    { name: 'Backup Server', ip: '192.168.1.10', type: 'server', location: 'Server Room', desc: 'Backup and storage server' },
+    { name: 'Office Printer', ip: '192.168.1.50', type: 'printer', location: 'Main Office', desc: 'Network printer HP LaserJet' },
+    { name: 'Warehouse AP', ip: '192.168.1.100', type: 'access_point', location: 'Warehouse', desc: 'Wireless access point' },
+    { name: 'UPS System', ip: '192.168.1.200', type: 'ups', location: 'Server Room', desc: 'Uninterruptible power supply' },
+    { name: 'CCTV NVR', ip: '192.168.1.201', type: 'nvr', location: 'Security Office', desc: 'Network video recorder' },
+    { name: 'HVAC Controller', ip: '192.168.1.202', type: 'hvac', location: 'Plant Room', desc: 'Building climate control' },
+  ];
+
+  const insertDevice = db.prepare('INSERT INTO snmp_devices (name, ip_address, device_type, location, description) VALUES (?, ?, ?, ?, ?)');
+  const insertStatus = db.prepare('INSERT INTO snmp_status (device_id, status, response_time, uptime, cpu_usage, memory_usage, error_message) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const insertAlert = db.prepare('INSERT INTO snmp_alerts (device_id, alert_type, severity, message) VALUES (?, ?, ?, ?)');
+
+  seedDevices.forEach((device, index) => {
+    const result = insertDevice.run(device.name, device.ip, device.type, device.location, device.desc);
+    const deviceId = result.lastInsertRowid;
+
+    // Add varied status data for realism
+    const statuses = ['online', 'online', 'online', 'online', 'warning', 'offline'];
+    const status = statuses[index % statuses.length];
+    const responseTime = status === 'offline' ? null : Math.floor(Math.random() * 50) + 5;
+    const uptime = status === 'offline' ? null : `${Math.floor(Math.random() * 90) + 1} days, ${Math.floor(Math.random() * 24)} hours`;
+    const cpuUsage = status === 'offline' ? null : Math.floor(Math.random() * 80) + 5;
+    const memoryUsage = status === 'offline' ? null : Math.floor(Math.random() * 70) + 20;
+    const errorMsg = status === 'offline' ? 'Connection timeout - device unreachable' : (status === 'warning' ? 'High resource usage detected' : null);
+
+    insertStatus.run(deviceId, status, responseTime, uptime, cpuUsage, memoryUsage, errorMsg);
+
+    // Add some alerts for demo
+    if (status === 'offline') {
+      insertAlert.run(deviceId, 'connection_lost', 'critical', `Lost connection to ${device.name} at ${device.ip}`);
+    } else if (status === 'warning') {
+      insertAlert.run(deviceId, 'high_usage', 'warning', `High resource usage detected on ${device.name}`);
+    }
+  });
+
+  console.log('Seeded SNMP devices for demo');
+}
 
 // ============ ENGINEERS API ============
 app.get('/api/engineers', (req, res) => {
@@ -380,6 +463,242 @@ app.get('/api/dashboard', (req, res) => {
   `).all(today);
 
   res.json({ stats, recent_jobs, upcoming_jobs });
+});
+
+// ============ SNMP DEVICES API ============
+
+// Get all devices with latest status
+app.get('/api/snmp/devices', (req, res) => {
+  const devices = db.prepare(`
+    SELECT d.*,
+      s.status, s.response_time, s.uptime, s.cpu_usage, s.memory_usage, s.error_message, s.checked_at,
+      (SELECT COUNT(*) FROM snmp_alerts WHERE device_id = d.id AND acknowledged = 0) as active_alerts
+    FROM snmp_devices d
+    LEFT JOIN (
+      SELECT device_id, status, response_time, uptime, cpu_usage, memory_usage, error_message, checked_at
+      FROM snmp_status
+      WHERE id IN (SELECT MAX(id) FROM snmp_status GROUP BY device_id)
+    ) s ON d.id = s.device_id
+    ORDER BY
+      CASE s.status
+        WHEN 'offline' THEN 1
+        WHEN 'warning' THEN 2
+        ELSE 3
+      END,
+      d.name
+  `).all();
+  res.json(devices);
+});
+
+// Get single device with status history
+app.get('/api/snmp/devices/:id', (req, res) => {
+  const device = db.prepare('SELECT * FROM snmp_devices WHERE id = ?').get(req.params.id);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+
+  const latestStatus = db.prepare(`
+    SELECT * FROM snmp_status WHERE device_id = ? ORDER BY checked_at DESC LIMIT 1
+  `).get(req.params.id);
+
+  const statusHistory = db.prepare(`
+    SELECT * FROM snmp_status WHERE device_id = ? ORDER BY checked_at DESC LIMIT 50
+  `).all(req.params.id);
+
+  const alerts = db.prepare(`
+    SELECT * FROM snmp_alerts WHERE device_id = ? ORDER BY created_at DESC LIMIT 20
+  `).all(req.params.id);
+
+  res.json({ ...device, latestStatus, statusHistory, alerts });
+});
+
+// Create new device
+app.post('/api/snmp/devices', (req, res) => {
+  const { name, ip_address, device_type, location, description, snmp_community, snmp_version, poll_interval, enabled } = req.body;
+  const result = db.prepare(`
+    INSERT INTO snmp_devices (name, ip_address, device_type, location, description, snmp_community, snmp_version, poll_interval, enabled)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(name, ip_address, device_type, location, description, snmp_community || 'public', snmp_version || 'v2c', poll_interval || 60, enabled !== undefined ? enabled : 1);
+
+  // Add initial status check
+  db.prepare(`
+    INSERT INTO snmp_status (device_id, status, response_time, uptime, cpu_usage, memory_usage)
+    VALUES (?, 'online', ?, ?, ?, ?)
+  `).run(result.lastInsertRowid, Math.floor(Math.random() * 30) + 5, '0 days, 0 hours', Math.floor(Math.random() * 30) + 5, Math.floor(Math.random() * 40) + 20);
+
+  res.json({ id: result.lastInsertRowid, ...req.body });
+});
+
+// Update device
+app.put('/api/snmp/devices/:id', (req, res) => {
+  const { name, ip_address, device_type, location, description, snmp_community, snmp_version, poll_interval, enabled } = req.body;
+  db.prepare(`
+    UPDATE snmp_devices SET name = ?, ip_address = ?, device_type = ?, location = ?, description = ?,
+    snmp_community = ?, snmp_version = ?, poll_interval = ?, enabled = ? WHERE id = ?
+  `).run(name, ip_address, device_type, location, description, snmp_community, snmp_version, poll_interval, enabled, req.params.id);
+  res.json({ id: parseInt(req.params.id), ...req.body });
+});
+
+// Delete device
+app.delete('/api/snmp/devices/:id', (req, res) => {
+  db.prepare('DELETE FROM snmp_devices WHERE id = ?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Poll device (simulate SNMP query)
+app.post('/api/snmp/devices/:id/poll', (req, res) => {
+  const device = db.prepare('SELECT * FROM snmp_devices WHERE id = ?').get(req.params.id);
+  if (!device) return res.status(404).json({ error: 'Device not found' });
+
+  // Simulate SNMP polling with randomized results
+  const statusOptions = ['online', 'online', 'online', 'online', 'online', 'warning', 'offline'];
+  const newStatus = statusOptions[Math.floor(Math.random() * statusOptions.length)];
+  const responseTime = newStatus === 'offline' ? null : Math.floor(Math.random() * 50) + 5;
+  const uptime = newStatus === 'offline' ? null : `${Math.floor(Math.random() * 90) + 1} days, ${Math.floor(Math.random() * 24)} hours`;
+  const cpuUsage = newStatus === 'offline' ? null : Math.floor(Math.random() * 80) + 5;
+  const memoryUsage = newStatus === 'offline' ? null : Math.floor(Math.random() * 70) + 20;
+  const errorMsg = newStatus === 'offline' ? 'Connection timeout - device unreachable' : (newStatus === 'warning' ? 'High resource usage detected' : null);
+
+  // Insert new status record
+  const result = db.prepare(`
+    INSERT INTO snmp_status (device_id, status, response_time, uptime, cpu_usage, memory_usage, error_message)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(req.params.id, newStatus, responseTime, uptime, cpuUsage, memoryUsage, errorMsg);
+
+  // Create alert if status changed to offline or warning
+  const previousStatus = db.prepare(`
+    SELECT status FROM snmp_status WHERE device_id = ? AND id != ? ORDER BY checked_at DESC LIMIT 1
+  `).get(req.params.id, result.lastInsertRowid);
+
+  if (previousStatus && previousStatus.status !== newStatus) {
+    if (newStatus === 'offline') {
+      db.prepare(`
+        INSERT INTO snmp_alerts (device_id, alert_type, severity, message)
+        VALUES (?, 'connection_lost', 'critical', ?)
+      `).run(req.params.id, `Lost connection to ${device.name} at ${device.ip_address}`);
+    } else if (newStatus === 'warning') {
+      db.prepare(`
+        INSERT INTO snmp_alerts (device_id, alert_type, severity, message)
+        VALUES (?, 'high_usage', 'warning', ?)
+      `).run(req.params.id, `High resource usage detected on ${device.name}`);
+    } else if (previousStatus.status === 'offline' && newStatus === 'online') {
+      db.prepare(`
+        INSERT INTO snmp_alerts (device_id, alert_type, severity, message)
+        VALUES (?, 'connection_restored', 'info', ?)
+      `).run(req.params.id, `Connection restored to ${device.name} at ${device.ip_address}`);
+    }
+  }
+
+  res.json({
+    device_id: parseInt(req.params.id),
+    status: newStatus,
+    response_time: responseTime,
+    uptime,
+    cpu_usage: cpuUsage,
+    memory_usage: memoryUsage,
+    error_message: errorMsg,
+    checked_at: new Date().toISOString()
+  });
+});
+
+// Poll all enabled devices
+app.post('/api/snmp/poll-all', (req, res) => {
+  const devices = db.prepare('SELECT * FROM snmp_devices WHERE enabled = 1').all();
+  const results = [];
+
+  devices.forEach(device => {
+    const statusOptions = ['online', 'online', 'online', 'online', 'online', 'warning', 'offline'];
+    const newStatus = statusOptions[Math.floor(Math.random() * statusOptions.length)];
+    const responseTime = newStatus === 'offline' ? null : Math.floor(Math.random() * 50) + 5;
+    const uptime = newStatus === 'offline' ? null : `${Math.floor(Math.random() * 90) + 1} days, ${Math.floor(Math.random() * 24)} hours`;
+    const cpuUsage = newStatus === 'offline' ? null : Math.floor(Math.random() * 80) + 5;
+    const memoryUsage = newStatus === 'offline' ? null : Math.floor(Math.random() * 70) + 20;
+    const errorMsg = newStatus === 'offline' ? 'Connection timeout - device unreachable' : (newStatus === 'warning' ? 'High resource usage detected' : null);
+
+    db.prepare(`
+      INSERT INTO snmp_status (device_id, status, response_time, uptime, cpu_usage, memory_usage, error_message)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(device.id, newStatus, responseTime, uptime, cpuUsage, memoryUsage, errorMsg);
+
+    results.push({ device_id: device.id, name: device.name, status: newStatus });
+  });
+
+  res.json({ polled: results.length, results });
+});
+
+// Get SNMP dashboard summary
+app.get('/api/snmp/summary', (req, res) => {
+  const totalDevices = db.prepare('SELECT COUNT(*) as count FROM snmp_devices').get().count;
+  const enabledDevices = db.prepare('SELECT COUNT(*) as count FROM snmp_devices WHERE enabled = 1').get().count;
+
+  const statusCounts = db.prepare(`
+    SELECT s.status, COUNT(*) as count
+    FROM snmp_devices d
+    LEFT JOIN (
+      SELECT device_id, status
+      FROM snmp_status
+      WHERE id IN (SELECT MAX(id) FROM snmp_status GROUP BY device_id)
+    ) s ON d.id = s.device_id
+    WHERE d.enabled = 1
+    GROUP BY s.status
+  `).all();
+
+  const statusMap = { online: 0, warning: 0, offline: 0 };
+  statusCounts.forEach(s => {
+    if (s.status) statusMap[s.status] = s.count;
+  });
+
+  const activeAlerts = db.prepare('SELECT COUNT(*) as count FROM snmp_alerts WHERE acknowledged = 0').get().count;
+  const criticalAlerts = db.prepare("SELECT COUNT(*) as count FROM snmp_alerts WHERE acknowledged = 0 AND severity = 'critical'").get().count;
+
+  const recentAlerts = db.prepare(`
+    SELECT a.*, d.name as device_name, d.ip_address
+    FROM snmp_alerts a
+    JOIN snmp_devices d ON a.device_id = d.id
+    WHERE a.acknowledged = 0
+    ORDER BY a.created_at DESC
+    LIMIT 10
+  `).all();
+
+  res.json({
+    total_devices: totalDevices,
+    enabled_devices: enabledDevices,
+    online_devices: statusMap.online,
+    warning_devices: statusMap.warning,
+    offline_devices: statusMap.offline,
+    active_alerts: activeAlerts,
+    critical_alerts: criticalAlerts,
+    recent_alerts: recentAlerts
+  });
+});
+
+// Get all alerts
+app.get('/api/snmp/alerts', (req, res) => {
+  const { acknowledged } = req.query;
+  let query = `
+    SELECT a.*, d.name as device_name, d.ip_address
+    FROM snmp_alerts a
+    JOIN snmp_devices d ON a.device_id = d.id
+  `;
+
+  if (acknowledged !== undefined) {
+    query += ` WHERE a.acknowledged = ${acknowledged === 'true' ? 1 : 0}`;
+  }
+
+  query += ' ORDER BY a.created_at DESC LIMIT 100';
+
+  const alerts = db.prepare(query).all();
+  res.json(alerts);
+});
+
+// Acknowledge alert
+app.put('/api/snmp/alerts/:id/acknowledge', (req, res) => {
+  db.prepare('UPDATE snmp_alerts SET acknowledged = 1, acknowledged_at = ? WHERE id = ?').run(new Date().toISOString(), req.params.id);
+  res.json({ success: true });
+});
+
+// Acknowledge all alerts for a device
+app.put('/api/snmp/devices/:id/acknowledge-alerts', (req, res) => {
+  db.prepare('UPDATE snmp_alerts SET acknowledged = 1, acknowledged_at = ? WHERE device_id = ? AND acknowledged = 0').run(new Date().toISOString(), req.params.id);
+  res.json({ success: true });
 });
 
 // ============ SERVE FRONTEND (Production) ============

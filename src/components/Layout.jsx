@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, Briefcase, UserCog, Calendar, Wrench } from 'lucide-react'
+import { Home, Users, Briefcase, UserCog, Calendar, Wrench, Wifi } from 'lucide-react'
 
 const navItems = [
   { to: '/', icon: Home, label: 'Dashboard' },
@@ -7,6 +7,7 @@ const navItems = [
   { to: '/jobs', icon: Briefcase, label: 'Jobs' },
   { to: '/customers', icon: Users, label: 'Customers' },
   { to: '/engineers', icon: UserCog, label: 'Engineers' },
+  { to: '/snmp-status', icon: Wifi, label: 'SNMP Status' },
 ]
 
 function Layout({ children }) {
