@@ -7,6 +7,7 @@ import Jobs from './pages/Jobs'
 import JobDetail from './pages/JobDetail'
 import Engineers from './pages/Engineers'
 import Diary from './pages/Diary'
+import Wallet from './pages/Wallet'
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
         <Route path="/jobs/:id" element={<JobDetail />} />
         <Route path="/engineers" element={<Engineers />} />
         <Route path="/diary" element={<Diary />} />
+        <Route path="/wallet" element={<Wallet />} />
       </Routes>
     </Layout>
   )
